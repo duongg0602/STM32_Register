@@ -60,9 +60,10 @@ void Flash_Erase(uint32_t page){
   	*FLASH_CR &= ~(1 << 6);  
 }
 
-void Flash_Program(uint32_t* add, uint16_t value){
+void Flash_Program(uint8_t* add, uint8_t value){
  	uint32_t* FLASH_SR = (uint32_t*)(0x40022000 + 0x0c);
  	uint32_t* FLASH_CR = (uint32_t*)(0x40022000 + 0x10);
+ 	uint32_t* FLASH_KEYR = (uint32_t*)(0x40022000 + 0x04);
 
 	while(((*FLASH_SR >> 0) & 1) == 1); //Check no main Flash memory operation is ongoing by checking the BSY bit
 
@@ -72,7 +73,7 @@ void Flash_Program(uint32_t* add, uint16_t value){
   	}
 
   	*FLASH_CR |= (1 << 0); //Flash programming
-	(uint16_t*)add = value;
+	add = value;
   	while(((*FLASH_SR >> 0) & 1) == 1); //wait for BSY reset
 
 }

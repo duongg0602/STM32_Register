@@ -99,7 +99,7 @@ void clock_init(){
 }
 
 
-void clock_enable_ABP1(APB1_Pheripheral p){
+void clock_enable_ABP1(APB1_Pheripheral *p){
 	uint32_t* RCC_APB1RSTR = (uint32_t*)(0x40021000 + 0x10);
 	*RCC_APB1RSTR |= (1 << *p);
 }
