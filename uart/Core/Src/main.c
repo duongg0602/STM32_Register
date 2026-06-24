@@ -47,33 +47,43 @@ char data[32];
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 void Uart_init(){
-	__HAL_RCC_GPIOA_CLK_ENABLE();
+	uint32_t* RCC_APB2ENR = (uint32_t*)(0x40021000 + 0x18);
 	uint32_t *AFIO_MAPR = (uint32_t *)(0x40010000 + 0x04);
 	uint32_t* CRH = (uint32_t*)(0x40010800 + 0x04);
-	uint32_t* ISER1 = (uint32_t*)(0xE000E100 + 0x04);
-	uint32_t * USART_CR3 = (uint32_t *)(0x40013800 + 0x14);
 
-	*CRH &= ~ (0b11 << 6) | (0b11 << 10); //Clear bit for PA9, PA10 register
-	*CRH |= (0b10 << 6) | (0b10 << 10); //set AF for PA9 TX, PA10 RX
+	*RCC_APB2ENR |= (1 << 2);
+	*RCC_APB2ENR |= (1 << 0);
+	*CRH &= ~((0xf << 4) | (0xf << 8)); //Clear bit for PA9, PA10 register
+	*CRH |= (0xb << 4) | (0x4 << 8); //set AF for PA9 TX, PA10 RX
 	*AFIO_MAPR &= ~(1 << 2); 			//set AFIO for PA9, PA10
 
-	__HAL_RCC_USART1_CLK_ENABLE();
+	*RCC_APB2ENR |= (1 << 14);
 	uint32_t * USART_BRR = (uint32_t *)(0x40013800 + 0x08);
 	*USART_BRR = (52 << 4) | (1 << 0);	//set baudrate = 9600
 	uint32_t * USART_CR1 = (uint32_t *)(0x40013800 + 0x0c);
 	*USART_CR1 &= ~(1 << 10); //disable Parity bits
 	*USART_CR1 &= ~(1 << 12); //Set 8bit data
-	*USART_CR1 |= (1 << 13) | (1 << 2) | (1 << 3); //Enable Usart, transmitter, receiver
+	*USART_CR1 |= (1 << 13) | (1 << 2) | (1 << 3) | (1 << 5); //Enable Usart, transmitter, receiver
 
-	//*USART_CR1 |= (1 << 5); //enable RXNE interrupt
-	//*ISER1 |= (1 << 5);
-	//DMA
-	*USART_CR3 |= (1 << 6); //enable DMAr
-
-
+	uint32_t* ISER1 = (uint32_t*)(0xE000E104);
+	*ISER1 |= (1 << 5);
 }
+int rv_index = 0;
+//void USART1_IRQHandler(void) {
+//	uint32_t* SR = (uint32_t *)(0x40013800);
+//	uint32_t* DR = (uint32_t *)(0x40013800 + 0x04);
+//    if ((*SR >> 5) & 1) {          // RXNE = 1
+//        char c = (char)*DR;        // đ�?c DR, tự xóa RXNE
+//        uint8_t next = (rx_head + 1) % RX_BUF_SIZE;
+//        if (next != rx_tail) {           // buffer chưa đầy
+//            rx_ring[rx_head] = c;
+//            rx_head = next;
+//        }
+//    }
+//}
 
 void Uart_Send_1byte_Data(char data){
 	uint32_t* SR = (uint32_t *)(0x40013800);
@@ -82,6 +92,8 @@ void Uart_Send_1byte_Data(char data){
 	*DR = data;						//Write data to DR reg to uart transfer data by PA9
 	while((*SR >> 6 & 1) == 0); 	// Wait until it finish transmit
 	*SR &= ~(1 << 6); 				//Clear TC flag
+
+
 }
 
 void Uart_send_string(char* msg){
@@ -93,13 +105,11 @@ void Uart_send_string(char* msg){
 
 char Uart_receive_1byte(){
 	uint32_t* SR = (uint32_t *)(0x40013800);
+	while((*SR >> 5 & 1) == 0); //wait to read the receive data
 	uint32_t* DR = (uint32_t *)(0x40013800 + 0x04);
-	while(((*SR >> 5) & 1) == 0); //wait to read the receive data
 	char data = *DR;
 	return data;
 }
-
-int rv_index = 0;
 void USART1_IRQHandler(){
 
 	uint32_t* DR = (uint32_t *)(0x40013800 + 0x04);
@@ -137,6 +147,7 @@ int main(void)
 {
   /* USER CODE BEGIN 1 */
 
+	char a[5] = "error\n";
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -156,15 +167,26 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
   Uart_init();
-  DMA_Uart_Rx_init();
+  //DMA_Uart_Rx_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  char msg = Uart_receive_1byte();
+	  if(msg == 'h'){
+		  __asm("NOP");
+	  }
+	  else if(msg == 'l'){
+		  __asm("NOP");
+	  }
+	  else{
+		  Uart_send_string(a);
+	  }
 
     /* USER CODE END WHILE */
 
@@ -206,6 +228,31 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
 }
 
 /* USER CODE BEGIN 4 */
