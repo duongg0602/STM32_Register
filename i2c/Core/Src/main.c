@@ -49,7 +49,102 @@
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
+void clock_init(){
+	uint32_t* RCC_CR = (uint32_t*)(0x40021000);
+	uint32_t* RCC_CFGR = (uint32_t*)(0x40021000 + 0x04);
+	uint32_t* RCC_AHBENR = (uint32_t*)(0x40021000 + 0x14);
+
+	*RCC_CR |= (1 << 0); //enable HSI Clock
+	while(((*RCC_CR >> 1) & 1) != 1); //wait HSI ready
+
+	*RCC_CFGR &= ~(1 << 16); // HSI oscillator clock selected as PLL input clock
+	*RCC_CFGR &= ~(0b1111 << 18); //PLL input clock x 2 ==> 8Mhz
+	*RCC_CFGR &= ~(0b1111 << 4); //AHB prs not divided ==> 8Mhz
+	*RCC_CFGR &= ~(0b111 << 8);  //ABP1 not divided ==> 8MHz
+	*RCC_CFGR &= ~(0b111 << 11); //ABP2 not divided ==> 8MHz
+
+	*RCC_CR |= (1 << 24);	//enable PLL
+	while(((*RCC_CR >> 25) & 1) != 1); //wait PLL ready
+
+	*RCC_CFGR &= ~(0b1111 << 0);
+	*RCC_CFGR |= (0b10 << 0); //PLL selected as system clock
+
+	while(((*RCC_CFGR >> 2) & 0b11) != 0b10); //wait until PLL is set as sys clock
+
+}
+
 void i2c_init(){
+	//SCL PB6, SDA PB7
+	uint32_t* AFIO_MAPR = (uint32_t*)(0x40010000  + 0x04);
+	uint32_t* GPIOB_CRL = (uint32_t*)(0x40010C00 );
+	uint32_t* RCC_APB2ENR = (uint32_t*)(0x40021000 + 0x18);
+	uint16_t* I2C_CR1 = (uint16_t*)(0x40005400);
+	uint16_t* I2C_CR2 = (uint16_t*)(0x40005400 + 0x04);
+	uint16_t* I2C_CCR = (uint16_t*)(0x40005400 + 0x1c);
+	uint16_t* I2C_TRISE = (uint16_t*)(0x40005400 + 0x20);
+
+	*RCC_APB2ENR |= (1 << 0);
+	*RCC_APB2ENR |= (1 << 3);
+	*RCC_APB2ENR |= (1 << 12);
+
+	*AFIO_MAPR &= ~(1 << 1); //SCL PB6, SDA PB7
+	*GPIOB_CRL &= ~(0xf << 24) | (0xf << 28);
+	*GPIOB_CRL |= (0xf << 24) | (0xf << 28); //AF open drain for PB6, PB7
+
+	*I2C_CR2 |= 8; //ABP1 = 8MHz
+	*I2C_CCR |= 0x28;
+	*I2C_CCR |= 9; //rise time
+
+	*I2C_CR1 |= (1 << 0); //enable I2C
+	*I2C_CR1 |= (1 << 8); //Start generation
+}
+
+void I2C_Write(uint8_t slave_add, uint8_t register_add, uint8_t data){
+	uint16_t* I2C_CR1 = (uint16_t*)(0x40005400);
+	uint16_t* I2C_SR1 = (uint16_t*)(0x40005400 + 0x14);
+	uint16_t* I2C_SR2 = (uint16_t*)(0x40005400 + 0x18);
+	uint16_t* I2C_DR = (uint16_t*)(0x40005400 + 0x10);
+
+	*I2C_CR1 |= (1 << 8);	//Start generation
+	while(((*I2C_SR1 >> 0) & 1) == 0); //wait until Start condition generated.
+	*I2C_DR = slave_add << 1 | 0;
+	while(((*I2C_SR1 >> 1) & 1) == 0); //wait until End of address transmission
+	*I2C_SR2;
+	while(((*I2C_SR1 >> 7) & 1) == 0);
+	*I2C_DR = register_add;
+	while(((*I2C_SR1 >> 7) & 1) == 0); //wait until Data register not empty
+	*I2C_DR = data;
+	while(((*I2C_SR1 >> 2) & 1) == 0); //wait until Data byte transfer succeeded
+	*I2C_CR1 |= (1 << 9); // Stop generation
+
+}
+
+char I2C_Read_1_byte(uint8_t slave_add, uint8_t register_add){
+	uint16_t* I2C_CR1 = (uint16_t*)(0x40005400);
+	uint16_t* I2C_SR1 = (uint16_t*)(0x40005400 + 0x14);
+	uint16_t* I2C_SR2 = (uint16_t*)(0x40005400 + 0x18);
+	uint16_t* I2C_DR = (uint16_t*)(0x40005400 + 0x10);
+
+	*I2C_CR1 |= (1 << 8);	//Start generation
+	while(((*I2C_SR1 >> 0) & 1) == 0); //wait until Start condition generated.
+	*I2C_DR = slave_add << 1;
+	while(((*I2C_SR1 >> 1) & 1) == 0); //wait until End of address transmission
+	*I2C_SR2;
+	while(((*I2C_SR1 >> 7) & 1) == 0);
+	*I2C_DR = register_add;
+	while(((*I2C_SR1 >> 2) & 1) == 0); //wait until Data byte transfer succeeded
+
+	*I2C_CR1 |= (1 << 8);	//repeated start
+	while(((*I2C_SR1 >> 0) & 1) == 0); //wait until Start condition generated.
+	*I2C_DR = slave_add << 1 | 1;
+	while(((*I2C_SR1 >> 1) & 1) == 0); //wait until End of address transmission
+	*I2C_SR2;
+
+	*I2C_CR1 &= ~(1 << 10); //NACK
+	*I2C_CR1 |= (1 << 9); // Stop generation
+	while(((*SR1 >> 6) & 1) != 1); //wait RxNE not empty
+	return (*I2C_DR);
+
 
 }
 /* USER CODE END PFP */
